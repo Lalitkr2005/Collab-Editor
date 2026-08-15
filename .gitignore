@@ -1,0 +1,23 @@
+# Dependencies — never push these, they are huge
+node_modules/
+npm-debug.log*
+
+# Environment files — never push API keys
+.env
+.env.local
+.env.production
+
+# Database files
+*.db
+*.sqlite
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/settings.json
+
+# Build output
+dist/
+build/
