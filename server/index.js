@@ -1,5 +1,6 @@
 const WebSocket = require('ws');
 const http      = require('http');
+const Y         = require('yjs');
 
 const httpServer = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -8,104 +9,90 @@ const httpServer = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server: httpServer });
 
-// Before: one Set of clients
-// Now: a Map where key = roomId, value = Set of clients in that room
+// Each room now stores TWO things:
+// 1. clients  — Set of connected WebSockets
+// 2. ydoc     — the Yjs document (the source of truth for this room)
 //
-// Example after 3 connections:
-// rooms = {
-//   "abc123": Set { socket1, socket2 },
-//   "xyz789": Set { socket3 }
-// }
+// The ydoc lives on the server so new joiners can get the current state
 const rooms = new Map();
 
-function getRoomClients(roomId) {
-  // If room does not exist yet, create it with an empty Set
+function getRoom(roomId) {
   if (!rooms.has(roomId)) {
-    rooms.set(roomId, new Set());
+    rooms.set(roomId, {
+      clients: new Set(),
+      ydoc:    new Y.Doc()        // one Yjs document per room
+    });
+    console.log(`Room "${roomId}" created`);
   }
   return rooms.get(roomId);
 }
 
-function broadcastToRoom(roomId, message, excludeSocket) {
-  const clients = getRoomClients(roomId);
-
-  clients.forEach((client) => {
-    if (client !== excludeSocket && client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(message));
-    }
-  });
-}
-
 function cleanupRoom(roomId) {
-  const clients = getRoomClients(roomId);
-
-  // If room is empty after someone leaves — delete it
-  // Prevents memory leak from accumulating empty rooms
-  if (clients.size === 0) {
+  const room = rooms.get(roomId);
+  if (room && room.clients.size === 0) {
+    room.ydoc.destroy();          // free Yjs memory
     rooms.delete(roomId);
-    console.log(`Room "${roomId}" deleted — no clients remaining`);
+    console.log(`Room "${roomId}" deleted`);
   }
 }
 
 wss.on('connection', (socket, request) => {
-  // Extract roomId from the URL query string
-  // ws://localhost:8080?room=abc123  →  roomId = "abc123"
   const url    = new URL(request.url, 'http://localhost:8080');
   const roomId = url.searchParams.get('room') || 'default';
 
-  console.log(`Client joined room "${roomId}"`);
-
-  // Add this socket to the correct room
-  const clients = getRoomClients(roomId);
-  clients.add(socket);
-
-  // Store roomId on the socket itself so we can access it on disconnect
+  const room = getRoom(roomId);
+  room.clients.add(socket);
   socket.roomId = roomId;
 
-  // Tell the new client which room they are in and how many people are here
-  socket.send(JSON.stringify({
-    type:    'connected',
-    roomId:  roomId,
-    clients: clients.size
-  }));
+  console.log(`Client joined "${roomId}". Clients: ${room.clients.size}`);
 
-  // Tell everyone else in the room someone joined
-  broadcastToRoom(roomId, {
-    type:    'user_joined',
-    clients: clients.size
-  }, socket);
+  // Send the new joiner the CURRENT document state
+  // This is how late joiners see existing content
+  // Y.encodeStateAsUpdate encodes the entire ydoc as a binary snapshot
+  const currentState = Y.encodeStateAsUpdate(room.ydoc);
+  socket.send(JSON.stringify({
+    type:   'init',
+    update: Array.from(currentState)   // convert Uint8Array to regular array for JSON
+  }));
 
   socket.on('message', (rawMessage) => {
     const message = JSON.parse(rawMessage.toString());
 
-    // Attach roomId to every message for debugging
-    console.log(`[Room: ${roomId}] Received: ${message.type}`);
+    if (message.type === 'sync') {
+      // Client sent a Yjs update (a delta of what changed)
+      // Step 1: Convert the array back to Uint8Array
+      const update = new Uint8Array(message.update);
 
-    // Broadcast only to clients in the SAME room
-    broadcastToRoom(roomId, message, socket);
+      // Step 2: Apply the update to the SERVER's ydoc
+      // This keeps the server's document in sync
+      Y.applyUpdate(room.ydoc, update);
+
+      // Step 3: Broadcast the SAME update to all other clients in the room
+      // We broadcast the original update — not a re-encoding
+      // This is efficient — the server is just a relay
+      room.clients.forEach((client) => {
+        if (client !== socket && client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({
+            type:   'sync',
+            update: message.update    // same array, no transformation needed
+          }));
+        }
+      });
+
+      console.log(`[${roomId}] Synced update (${update.byteLength} bytes)`);
+    }
   });
 
   socket.on('close', () => {
-    // Remove from room
-    const roomClients = getRoomClients(socket.roomId);
-    roomClients.delete(socket);
-
-    console.log(`Client left room "${socket.roomId}". Remaining: ${roomClients.size}`);
-
-    // Tell remaining clients in this room someone left
-    broadcastToRoom(socket.roomId, {
-      type:    'user_left',
-      clients: roomClients.size
-    }, null);
-
-    // Clean up empty room
+    room.clients.delete(socket);
+    console.log(`Client left "${roomId}". Remaining: ${room.clients.size}`);
     cleanupRoom(socket.roomId);
   });
 
   socket.on('error', (error) => {
-    console.error(`[Room: ${socket.roomId}] Socket error: ${error.message}`);
-    const roomClients = getRoomClients(socket.roomId);
-    roomClients.delete(socket);
+    console.error(`[${socket.roomId}] Error: ${error.message}`);
+    const room = rooms.get(socket.roomId);
+    if (room) room.clients.delete(socket);
     cleanupRoom(socket.roomId);
   });
 });
@@ -113,5 +100,4 @@ wss.on('connection', (socket, request) => {
 const PORT = 8080;
 httpServer.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  console.log('Waiting for connections...');
 });
