@@ -3,299 +3,712 @@
 <head>
   <meta charset="UTF-8">
   <title>Collab Editor</title>
+
+  <!-- Load Yjs as ES Module -->
+  <script type="module">
+    import * as Y from 'https://cdn.jsdelivr.net/npm/yjs/+esm';
+    window.Y = Y;
+    window.yjsReady = true;
+    console.log('Yjs loaded successfully');
+  </script>
+
+  <!-- Monaco loader -->
+  <script src="monaco-editor/vs/loader.js"></script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0d1117;
-      color: #e6edf3;
+      background: #1e1e1e;
+      color: #d4d4d4;
       height: 100vh;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
     .header {
-      background: #161b22;
-      border-bottom: 1px solid #30363d;
-      padding: 12px 20px;
+      background: #252526;
+      border-bottom: 1px solid #3c3c3c;
+      padding: 0 16px;
+      height: 48px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      flex-shrink: 0;
     }
 
-    .title { font-size: 15px; font-weight: 600; flex-shrink: 0; }
+    .title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #cccccc;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
 
-    .room-info {
-      font-size: 12px;
-      padding: 4px 10px;
+    .title-icon { font-size: 16px; }
+
+    .users-bar {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .user-badge {
+      font-size: 11px;
+      padding: 3px 10px;
       border-radius: 20px;
-      background: #1f2428;
-      border: 1px solid #30363d;
-      color: #7d8590;
-      font-family: monospace;
+      font-weight: 500;
+      color: white;
     }
-
-    .room-info span { color: #f0883e; font-weight: 600; }
 
     .status {
-      font-size: 12px;
-      padding: 4px 10px;
+      font-size: 11px;
+      padding: 3px 10px;
       border-radius: 20px;
-      background: #1f2428;
-      border: 1px solid #30363d;
+      border: 1px solid #3c3c3c;
       flex-shrink: 0;
     }
 
     .status.connected    { color: #3fb950; border-color: #3fb950; }
     .status.disconnected { color: #f85149; border-color: #f85149; }
 
-    .room-bar {
-      background: #161b22;
-      border-bottom: 1px solid #30363d;
-      padding: 10px 20px;
+    .toolbar {
+      background: #2d2d2d;
+      border-bottom: 1px solid #3c3c3c;
+      padding: 6px 16px;
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-shrink: 0;
+      flex-wrap: wrap;
     }
 
-    .room-bar input {
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 6px;
-      color: #e6edf3;
-      font-size: 13px;
-      padding: 6px 10px;
+    .toolbar input {
+      background: #3c3c3c;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #cccccc;
+      font-size: 12px;
+      padding: 4px 8px;
       outline: none;
-      width: 200px;
-      font-family: monospace;
+      width: 120px;
     }
 
-    .room-bar input:focus { border-color: #58a6ff; }
+    .toolbar input:focus { border-color: #007acc; }
 
-    .room-bar button {
-      background: #238636;
+    .toolbar select {
+      background: #3c3c3c;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #cccccc;
+      font-size: 12px;
+      padding: 4px 8px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .toolbar button {
+      background: #007acc;
       border: none;
-      border-radius: 6px;
-      color: #ffffff;
-      font-size: 13px;
-      padding: 6px 14px;
+      border-radius: 4px;
+      color: white;
+      font-size: 12px;
+      padding: 4px 12px;
       cursor: pointer;
       font-weight: 500;
     }
 
-    .room-bar button:hover { background: #2ea043; }
+    .toolbar button:hover { background: #0098ff; }
 
     .copy-btn {
-      background: #1f2428 !important;
-      border: 1px solid #30363d !important;
-      color: #e6edf3 !important;
-      font-size: 12px !important;
+      background: #3c3c3c !important;
+      border: 1px solid #555 !important;
+      color: #cccccc !important;
     }
 
-    .editor-area {
+    .copy-btn:hover { background: #4c4c4c !important; }
+
+    .room-tag {
+      font-size: 11px;
+      color: #888;
+      font-family: monospace;
+    }
+
+    .room-tag span { color: #ce9178; }
+
+    /* Monaco editor container */
+    #monaco-container {
       flex: 1;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      position: relative;
       min-height: 0;
     }
 
-    .editor-label {
+    /* Remote cursor labels floating over Monaco */
+    .cursor-label {
+      position: absolute;
       font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #7d8590;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 3px;
+      color: white;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 100;
     }
 
-    textarea {
-      flex: 1;
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      color: #e6edf3;
-      font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
-      font-size: 15px;
-      line-height: 1.6;
-      padding: 16px;
-      resize: none;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-
-    textarea:focus { border-color: #58a6ff; }
-
-    .log {
-      height: 100px;
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      padding: 10px 14px;
-      font-family: monospace;
-      font-size: 12px;
-      overflow-y: auto;
-      color: #7d8590;
+    .status-bar {
+      background: #007acc;
+      padding: 2px 16px;
+      font-size: 11px;
+      color: white;
+      display: flex;
+      gap: 20px;
       flex-shrink: 0;
     }
 
-    .log-entry { padding: 1px 0; }
-    .log-entry.sent     { color: #58a6ff; }
-    .log-entry.received { color: #3fb950; }
-    .log-entry.system   { color: #f0883e; }
+    .status-bar span { opacity: 0.9; }
+
+    .run-btn {
+      background: #2ea043 !important;
+    }
+
+    .run-btn:hover { background: #3fb950 !important; }
+
+    .output-panel {
+      background: #181818;
+      border-top: 1px solid #3c3c3c;
+      flex-shrink: 0;
+      height: 180px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .output-header {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      padding: 4px 12px;
+      border-bottom: 1px solid #2d2d2d;
+      flex-shrink: 0;
+    }
+
+    #outputContent {
+      flex: 1;
+      margin: 0;
+      padding: 8px 12px;
+      overflow-y: auto;
+      font-family: Cascadia Code, Fira Code, Courier New, monospace;
+      font-size: 12px;
+      color: #d4d4d4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
   </style>
 </head>
 <body>
 
 <div class="header">
-  <div class="title">⚡ Collab Editor</div>
-  <div class="room-info">Room: <span id="roomDisplay">—</span></div>
+  <div class="title">
+    <span class="title-icon">⚡</span>
+    Collab Editor
+  </div>
+  <div class="users-bar" id="usersBar"></div>
+  <div class="room-tag">Room: <span id="roomDisplay">—</span></div>
   <div class="status disconnected" id="status">Connecting...</div>
 </div>
 
-<div class="room-bar">
-  <input type="text" id="roomInput" placeholder="Enter room name..." />
+<div class="toolbar">
+  <input type="text" id="nameInput"  placeholder="Your name..." value="User1" />
+  <input type="text" id="roomInput"  placeholder="Room name..." />
+  <select id="langSelect">
+    <option value="python">Python</option>
+    <option value="javascript" selected>JavaScript</option>
+    <option value="cpp">C++</option>
+    <option value="java">Java</option>
+    <option value="typescript">TypeScript</option>
+    <option value="markdown">Markdown</option>
+  </select>
   <button onclick="joinRoom()">Join Room</button>
   <button class="copy-btn" onclick="copyRoomLink()">Copy Link</button>
+  <button class="run-btn" onclick="runCode()">Run</button>
 </div>
 
-<div class="editor-area">
-  <div class="editor-label">Type here — syncs to everyone in the same room</div>
-  <textarea
-    id="editor"
-    placeholder="Join a room above, then start typing..."
-    spellcheck="false"
-  ></textarea>
-  <div class="log" id="log"></div>
+<div id="monaco-container"></div>
+
+<div class="output-panel">
+  <div class="output-header">Output</div>
+  <pre id="outputContent"></pre>
+</div>
+
+<div class="status-bar">
+  <span id="statusBarLang">JavaScript</span>
+  <span id="statusBarPos">Ln 1, Col 1</span>
+  <span id="statusBarUsers">0 users</span>
 </div>
 
 <script>
-  const editor     = document.getElementById('editor');
-  const statusEl   = document.getElementById('status');
-  const logEl      = document.getElementById('log');
-  const roomInput  = document.getElementById('roomInput');
-  const roomDisplay = document.getElementById('roomDisplay');
+  // ── State ────────────────────────────────────────────────
+  let monacoEditor  = null;   // the Monaco editor instance
+  let ws            = null;
+  let ydoc          = null;
+  let ytext         = null;
+  let ymeta         = null;
+  let contentChangeListener = null; // disposable for the current room's onDidChangeModelContent binding
+  let currentRoom   = null;
+  let myColor       = null;
+  let awareness     = new Map();
+  let suppressSync  = false;  // replaces isUpdatingEditor
 
-  let ws = null;
-  let currentRoom = null;
-  let applyingRemoteUpdate = false;
+  const COLORS = [
+    '#e74c3c','#3498db','#2ecc71','#f39c12',
+    '#9b59b6','#1abc9c','#e67e22','#e91e63'
+  ];
 
-  // ── Logging ──────────────────────────────────────────────
-  function addLog(message, type = 'system') {
-    const entry = document.createElement('div');
-    entry.className = `log-entry ${type}`;
-    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-    logEl.appendChild(entry);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
+  const cursorDecorations = new Map(); // clientId → decoration IDs
+  const cursorLabels      = new Map(); // clientId → floating name-label DOM element
 
-  // ── Room from URL ─────────────────────────────────────────
-  // If URL has ?room=abc123, auto-join that room on page load
-  function getRoomFromURL() {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('room');
-  }
+  // Monaco decoration classNames can't take inline colors, so we inject
+  // one CSS rule per user color the first time we see it.
+  const injectedCaretColors = new Set();
+  const caretStyleEl = document.createElement('style');
+  document.head.appendChild(caretStyleEl);
 
-  // ── Join a Room ───────────────────────────────────────────
-  function joinRoom() {
-    const roomId = roomInput.value.trim() || 'default';
-
-    // Close existing connection if switching rooms
-    if (ws) {
-      ws.close();
-      addLog(`Left room "${currentRoom}"`, 'system');
+  function caretClassFor(color) {
+    const key = color.replace('#', '');
+    const className = `remote-caret-${key}`;
+    if (!injectedCaretColors.has(key)) {
+      injectedCaretColors.add(key);
+      caretStyleEl.appendChild(document.createTextNode(
+        `.${className} { border-left: 2px solid ${color}; margin-left: -1px; }\n`
+      ));
     }
+    return className;
+  }
+
+  // ── DOM refs ─────────────────────────────────────────────
+  const statusEl    = document.getElementById('status');
+  const roomInput   = document.getElementById('roomInput');
+  const nameInput   = document.getElementById('nameInput');
+  const roomDisplay = document.getElementById('roomDisplay');
+  const usersBar    = document.getElementById('usersBar');
+  const langSelect  = document.getElementById('langSelect');
+  const statusBarLang  = document.getElementById('statusBarLang');
+  const statusBarPos   = document.getElementById('statusBarPos');
+  const statusBarUsers = document.getElementById('statusBarUsers');
+  const outputContent  = document.getElementById('outputContent');
+
+  // ── Load Monaco ──────────────────────────────────────────
+  require.config({ paths: { vs: 'monaco-editor/vs' } });
+
+  require(['vs/editor/editor.main'], () => {
+    // Monaco is ready — create the editor
+    monacoEditor = monaco.editor.create(
+      document.getElementById('monaco-container'),
+      {
+        value:             '// Start typing...\n',
+        language:          'javascript',
+        theme:             'vs-dark',       // VS Code dark theme
+        fontSize:          15,
+        fontFamily:        'Cascadia Code, Fira Code, Courier New, monospace',
+        lineNumbers:       'on',
+        minimap:           { enabled: true },
+        scrollBeyondLastLine: false,
+        automaticLayout:   true,           // resize with window
+        cursorBlinking:    'smooth',
+        smoothScrolling:   true,
+        padding:           { top: 12 }
+      }
+    );
+
+    // Update status bar cursor position on move
+    monacoEditor.onDidChangeCursorPosition((e) => {
+      statusBarPos.textContent =
+        `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+
+      // Remote edits move the cursor's markers too (executeEdits with
+      // forceMoveMarkers), which fires this same event. Skip broadcasting
+      // in that case — it isn't the local user moving, and re-sending it
+      // as if it were floods peers with misattributed cursor updates.
+      if (suppressSync) return;
+
+      // Send cursor position to other users
+      if (ws && ws.readyState === WebSocket.OPEN && ydoc) {
+        const offset = monacoEditor.getModel()
+          .getOffsetAt(e.position);
+        sendAwareness(
+          nameInput.value.trim() || 'Anonymous',
+          myColor,
+          offset
+        );
+      }
+    });
+
+    // Reposition floating name labels when the view scrolls or resizes
+    monacoEditor.onDidScrollChange(() => renderCursors());
+    monacoEditor.onDidLayoutChange(() => renderCursors());
+
+    // Listen for language change
+    langSelect.addEventListener('change', () => {
+      if (!monacoEditor || !ymeta) return;
+
+      // Store language in Yjs shared state
+      ymeta.set('language', langSelect.value);
+
+      // ymeta.set() only mutates the local doc — it doesn't get sent
+      // anywhere on its own (unlike ytext edits, which broadcast via
+      // onDidChangeModelContent). Broadcast it explicitly so peers
+      // actually receive the change instead of it silently staying local.
+      sendYjsUpdate();
+
+      // ymeta.observe above handles updating Monaco and the status bar
+      // so we do not need to do it here
+    });
+
+    // Auto-join from URL once Monaco is ready
+    const roomFromURL = new URLSearchParams(window.location.search).get('room');
+    if (roomFromURL) {
+      roomInput.value = roomFromURL;
+      joinRoom();
+    }
+
+    console.log('Monaco editor ready');
+  });
+
+  // ── Join Room ────────────────────────────────────────────
+  function joinRoom() {
+    // Guard — wait for both Yjs and Monaco to be ready
+    if (!window.yjsReady) {
+      setTimeout(joinRoom, 100);
+      return;
+    }
+    if (!monacoEditor) {
+      setTimeout(joinRoom, 100);
+      return;
+    }
+
+    const roomId = roomInput.value.trim() || 'default';
+    const myName = nameInput.value.trim() || 'Anonymous';
+    myColor      = COLORS[Math.floor(Math.random() * COLORS.length)];
+
+    if (ws)   ws.close();
+    if (ydoc) ydoc.destroy();
 
     currentRoom = roomId;
     roomDisplay.textContent = roomId;
-    editor.value = '';
 
-    // Update URL so the link is shareable
-    const newUrl = `${window.location.pathname}?room=${roomId}`;
-    window.history.pushState({}, '', newUrl);
+    // Clear editor content
+    suppressSync = true;
+    monacoEditor.setValue('');
+    suppressSync = false;
 
-    // Connect with room in query string
-    // Server reads this to put socket in correct room
-    ws = new WebSocket(`ws://localhost:8080?room=${roomId}`);
+    // Set default language in shared state
+    // Do this after ydoc is created so ymeta exists
+    setTimeout(() => {
+      if (ymeta && !ymeta.get('language')) {
+        ymeta.set('language', langSelect.value);
+        sendYjsUpdate();
+      }
+    }, 500);
+
+    // Fresh Yjs document
+    ydoc  = new Y.Doc();
+    ytext = ydoc.getText('content');
+    ymeta = ydoc.getMap('meta');
+
+    awareness = new Map();
+
+    window.history.pushState(
+      {}, '',
+      `${window.location.pathname}?room=${roomId}`
+    );
+
+    // ── The key difference from textarea ──────────────────
+    // ytext.observe fires when ANYONE changes the text
+    // We update Monaco only when a REMOTE change arrives
+    ytext.observe((event) => {
+      if (suppressSync) return;
+
+      // Convert the Yjs delta into targeted Monaco edits instead of
+      // replacing the whole document. A full-range replace can't tell
+      // Monaco which characters actually moved, so it fails to shift
+      // the local cursor past remote inserts/deletes that land before
+      // it — any typing that follows gets inserted at that stale
+      // position instead of the current one.
+      const model = monacoEditor.getModel();
+      const edits = [];
+      let index   = 0;
+
+      event.delta.forEach(op => {
+        if (op.retain !== undefined) {
+          index += op.retain;
+        } else if (op.insert !== undefined) {
+          const pos = model.getPositionAt(index);
+          edits.push({
+            range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+            text:  op.insert,
+            forceMoveMarkers: true
+          });
+        } else if (op.delete !== undefined) {
+          const start = model.getPositionAt(index);
+          const end   = model.getPositionAt(index + op.delete);
+          edits.push({
+            range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+            text:  '',
+            forceMoveMarkers: true
+          });
+          index += op.delete;
+        }
+      });
+
+      if (edits.length > 0) {
+        suppressSync = true;
+        monacoEditor.executeEdits('remote-sync', edits);
+        suppressSync = false;
+      }
+    });
+
+    ymeta.observe(() => {
+      const lang = ymeta.get('language');
+      if (!lang || !monacoEditor) return;
+
+      // Update Monaco's language
+      monaco.editor.setModelLanguage(monacoEditor.getModel(), lang);
+
+      // Update the dropdown to match
+      langSelect.value = lang;
+
+      // Update status bar
+      const option = langSelect.options[langSelect.selectedIndex];
+      if (option) statusBarLang.textContent = option.text;
+    });
+
+    // ── Send Yjs updates when Monaco content changes ──────
+    // monacoEditor is a single persistent instance reused across rooms —
+    // if joinRoom() runs more than once (rejoining, switching rooms,
+    // clicking "Join Room" again) without disposing the previous
+    // binding, listeners stack up. Each stacked listener still closes
+    // over the current ytext/ydoc/ws, so a single keystroke would insert
+    // into ytext once per accumulated listener, corrupting the shared
+    // document while the local editor (unaffected by how many listeners
+    // fire) looks completely normal.
+    if (contentChangeListener) {
+      contentChangeListener.dispose();
+      contentChangeListener = null;
+    }
+    contentChangeListener = monacoEditor.onDidChangeModelContent((event) => {
+      if (suppressSync) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      // Monaco tells us exactly what changed
+      // Apply each change to Yjs precisely
+      suppressSync = true;
+      ydoc.transact(() => {
+        event.changes
+          .sort((a, b) => b.rangeOffset - a.rangeOffset)
+          .forEach(change => {
+            if (change.rangeLength > 0) {
+              ytext.delete(change.rangeOffset, change.rangeLength);
+            }
+            if (change.text) {
+              ytext.insert(change.rangeOffset, change.text);
+            }
+          });
+      });
+      suppressSync = false;
+
+      sendYjsUpdate();
+    });
+
+    // Connect WebSocket
+    ws            = new WebSocket(`ws://localhost:8080?room=${roomId}`);
+    ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
       statusEl.textContent = 'Connected';
-      statusEl.className = 'status connected';
-      addLog(`Joined room "${roomId}"`, 'system');
+      statusEl.className   = 'status connected';
+      sendAwareness(myName, myColor, 0);
     };
 
     ws.onclose = () => {
       statusEl.textContent = 'Disconnected';
-      statusEl.className = 'status disconnected';
+      statusEl.className   = 'status disconnected';
     };
 
     ws.onerror = () => {
-      addLog('Connection error — is the server running?', 'system');
+      console.error('WebSocket connection error');
     };
 
     ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
+      const data    = new Uint8Array(event.data);
+      const msgType = data[0];
+      const payload = data.slice(1);
 
-      if (message.type === 'connected') {
-        addLog(`Room has ${message.clients} client(s)`, 'system');
-        return;
+      if (msgType === 0) {
+        // Document sync — apply to ydoc
+        Y.applyUpdate(ydoc, payload);
       }
 
-      if (message.type === 'user_joined') {
-        addLog(`Someone joined. ${message.clients} in room`, 'system');
-        return;
+      if (msgType === 1) {
+        // Awareness — decode and render cursors
+        try {
+          const json = new TextDecoder().decode(payload);
+          const { clientId, state } = JSON.parse(json);
+          if (state === null) {
+            awareness.delete(clientId);
+          } else {
+            awareness.set(clientId, state);
+          }
+          renderCursors();
+        } catch(e) { /* non-fatal */ }
       }
 
-      if (message.type === 'user_left') {
-        addLog(`Someone left. ${message.clients} in room`, 'system');
-        return;
-      }
-
-      if (message.type === 'text_update') {
-        const cursorStart = editor.selectionStart;
-        const cursorEnd   = editor.selectionEnd;
-
-        applyingRemoteUpdate = true;
-        editor.value = message.content;
-        applyingRemoteUpdate = false;
-
-        editor.setSelectionRange(cursorStart, cursorEnd);
-        addLog(`Received update (${message.content.length} chars)`, 'received');
+      if (msgType === 3) {
+        // Run output — append the chunk and keep the panel scrolled to bottom
+        try {
+          const { chunk } = JSON.parse(new TextDecoder().decode(payload));
+          outputContent.textContent += chunk;
+          outputContent.scrollTop = outputContent.scrollHeight;
+        } catch(e) { /* non-fatal */ }
       }
     };
   }
 
-  // ── Send on Typing ────────────────────────────────────────
-  editor.addEventListener('input', () => {
-    if (applyingRemoteUpdate) return;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  // ── Run code ─────────────────────────────────────────────
+  function runCode() {
+    if (!monacoEditor || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-    ws.send(JSON.stringify({
-      type:    'text_update',
-      content: editor.value
-    }));
+    const payload = { code: monacoEditor.getValue(), language: langSelect.value };
+    const bytes   = new TextEncoder().encode(JSON.stringify(payload));
+    const message = new Uint8Array(1 + bytes.byteLength);
+    message[0]    = 2;
+    message.set(bytes, 1);
+    ws.send(message);
+  }
 
-    addLog(`Sent update (${editor.value.length} chars)`, 'sent');
-  });
+  // ── Render remote cursors in Monaco ──────────────────────
+  function renderCursors() {
+    if (!monacoEditor || !ydoc) return;
 
-  // ── Copy shareable link ───────────────────────────────────
-  function copyRoomLink() {
-    if (!currentRoom) {
-      addLog('Join a room first', 'system');
-      return;
-    }
-    const link = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
-    navigator.clipboard.writeText(link).then(() => {
-      addLog(`Link copied: ${link}`, 'system');
+    const myClientId = ydoc.clientID;
+    const model      = monacoEditor.getModel();
+
+    // Update users bar
+    usersBar.innerHTML = '';
+    let userCount = 0;
+
+    awareness.forEach((state, clientId) => {
+      if (!state?.user) return;
+      userCount++;
+
+      // Add badge to header
+      const badge = document.createElement('div');
+      badge.className        = 'user-badge';
+      badge.style.background = state.user.color;
+      badge.textContent      = state.user.name;
+      usersBar.appendChild(badge);
+
+      // Do not render cursor for yourself
+      if (clientId === myClientId) return;
+      if (state.cursor === undefined) return;
+
+      // Convert character offset to Monaco position
+      const position = model.getPositionAt(state.cursor);
+
+      // Monaco decoration — thin colored caret at the cursor position
+      const decorations = monacoEditor.deltaDecorations(
+        cursorDecorations.get(clientId) || [],
+        [
+          {
+            range: new monaco.Range(
+              position.lineNumber, position.column,
+              position.lineNumber, position.column + 1
+            ),
+            options: {
+              beforeContentClassName: caretClassFor(state.user.color),
+              hoverMessage: { value: state.user.name }
+            }
+          }
+        ]
+      );
+
+      cursorDecorations.set(clientId, decorations);
+
+      // Floating name label, positioned above the caret
+      let label = cursorLabels.get(clientId);
+      if (!label) {
+        label = document.createElement('div');
+        label.className = 'cursor-label';
+        document.getElementById('monaco-container').appendChild(label);
+        cursorLabels.set(clientId, label);
+      }
+      label.textContent      = state.user.name;
+      label.style.background = state.user.color;
+
+      const visible = monacoEditor.getScrolledVisiblePosition(position);
+      if (visible) {
+        label.style.display = '';
+        label.style.left    = `${visible.left}px`;
+        label.style.top     = `${visible.top - 18}px`;
+      } else {
+        // Cursor is scrolled out of view
+        label.style.display = 'none';
+      }
+    });
+
+    statusBarUsers.textContent = `${userCount} user${userCount !== 1 ? 's' : ''}`;
+
+    // Remove decorations and labels for users who left
+    cursorDecorations.forEach((decorationIds, clientId) => {
+      if (!awareness.has(clientId)) {
+        monacoEditor.deltaDecorations(decorationIds, []);
+        cursorDecorations.delete(clientId);
+      }
+    });
+    cursorLabels.forEach((label, clientId) => {
+      if (!awareness.has(clientId)) {
+        label.remove();
+        cursorLabels.delete(clientId);
+      }
     });
   }
 
-  // ── Auto-join from URL on page load ──────────────────────
-  const roomFromURL = getRoomFromURL();
-  if (roomFromURL) {
-    roomInput.value = roomFromURL;
-    joinRoom();
+  // ── Send a Yjs doc update ─────────────────────────────────
+  // Shared by every place that mutates the doc (ytext edits, ymeta
+  // changes like language) so a mutation is never left un-broadcast.
+  function sendYjsUpdate() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const update  = Y.encodeStateAsUpdate(ydoc);
+    const message = new Uint8Array(1 + update.byteLength);
+    message[0]    = 0;
+    message.set(update, 1);
+    ws.send(message);
+  }
+
+  // ── Send awareness ───────────────────────────────────────
+  function sendAwareness(name, color, cursorPos) {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !ydoc) return;
+
+    const state    = { user: { name, color }, cursor: cursorPos };
+    const clientId = ydoc.clientID;
+    const bytes    = new TextEncoder().encode(JSON.stringify({ clientId, state }));
+    const message  = new Uint8Array(1 + bytes.byteLength);
+    message[0]     = 1;
+    message.set(bytes, 1);
+    ws.send(message);
+  }
+
+  // ── Copy room link ───────────────────────────────────────
+  function copyRoomLink() {
+    if (!currentRoom) return;
+    const link = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
+    navigator.clipboard.writeText(link).then(() => {
+      console.log('Link copied:', link);
+    });
   }
 </script>
 </body>
