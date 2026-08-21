@@ -121,7 +121,7 @@ wss.on('connection', (socket, request) => {
           return;
         }
 
-        const { code, language } = JSON.parse(new TextDecoder().decode(payload));
+        const { code, language, username } = JSON.parse(new TextDecoder().decode(payload));
         if (typeof code !== 'string' || typeof language !== 'string') {
           socket.send(encodeOutputMessage('[Error] Invalid run request.\n'));
           return;
@@ -129,6 +129,8 @@ wss.on('connection', (socket, request) => {
 
         room.running = true;
         console.log(`[${roomId}] Run requested (${language})`);
+
+        broadcast(room, encodeOutputMessage(`[${username} ran ${language} code]\n`), null);
 
         executeCode(code, language, (chunk) => {
           broadcast(room, encodeOutputMessage(chunk), null);

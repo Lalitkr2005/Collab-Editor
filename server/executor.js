@@ -20,12 +20,11 @@ const LANGUAGES = {
     filename: 'code.js',
     cmd:      ['node', '/sandbox/code.js'],
   },
-  cpp: {
-    image:    'gcc:13',
-    filename: 'code.cpp',
-    // Compile first, then run
-    cmd:      ['sh', '-c', 'g++ -o /sandbox/code /sandbox/code.cpp && /sandbox/code'],
-  },
+cpp: {
+  image:    'gcc:13',
+  filename: 'code.cpp',
+  cmd:      ['sh', '-c', 'cd /sandbox && g++ -o /sandbox/code /sandbox/code.cpp && chmod +x /sandbox/code && /sandbox/code'],
+},
   java: {
     image:    'openjdk:21-slim',
     filename: 'Main.java',
@@ -41,7 +40,7 @@ const SECURITY_FLAGS = [
   '--memory-swap', '128m',   // no swap memory either
   '--cpus', '0.5',           // half a CPU core maximum
   '--read-only',             // filesystem is read-only
-  '--tmpfs', '/sandbox:size=10m', // tiny writable scratch space
+  '--tmpfs', '/sandbox:size=10m,exec', // tiny writable scratch space
   '--user', '1000:1000',     // run as non-root user
 ];
 
