@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS room_snapshots (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  room_id    VARCHAR(255) NOT NULL UNIQUE,
+  snapshot   LONGBLOB NOT NULL,
+  language   VARCHAR(50) DEFAULT 'javascript',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+             ON UPDATE CURRENT_TIMESTAMP
+);

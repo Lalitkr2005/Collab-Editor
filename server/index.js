@@ -2,6 +2,7 @@ const WebSocket  = require('ws');
 const http       = require('http');
 const Y          = require('yjs');
 const { executeCode } = require('./executor');
+const db         = require('./db');
 
 const httpServer = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -19,27 +20,78 @@ const MESSAGE_OUTPUT    = 3;   // a chunk of run output, JSON-encoded { chunk }
 
 const rooms = new Map();
 
-function getRoom(roomId) {
+async function getRoom(roomId) {
   if (!rooms.has(roomId)) {
-    rooms.set(roomId, {
+    const room = {
       clients:         new Set(),
       ydoc:            new Y.Doc(),
       awarenessStates: new Map(), // clientId -> state
       running:         false,     // true while a run is executing in this room
-    });
-    console.log(`Room "${roomId}" created`);
+    };
+    rooms.set(roomId, room);
+
+    // Try to restore a previously persisted snapshot from MySQL. If the DB is
+    // unavailable, fall through and keep the freshly created empty room.
+    try {
+      const saved = await db.loadSnapshot(roomId);
+      if (saved && saved.snapshot) {
+        Y.applyUpdate(room.ydoc, new Uint8Array(saved.snapshot));
+        console.log(`Room "${roomId}" restored from MySQL`);
+      } else {
+        console.log(`Room "${roomId}" created fresh`);
+      }
+    } catch (error) {
+      console.error(`[${roomId}] Snapshot load failed, continuing with empty room: ${error.message}`);
+    }
   }
   return rooms.get(roomId);
 }
 
-function cleanupRoom(roomId) {
+// Read the collaborative language setting from the shared Y.Doc, defaulting to
+// 'javascript' when it has not been set yet.
+function getRoomLanguage(room) {
+  try {
+    return room.ydoc.getMap('meta').get('language') || 'javascript';
+  } catch (error) {
+    return 'javascript';
+  }
+}
+
+async function cleanupRoom(roomId) {
   const room = rooms.get(roomId);
   if (room && room.clients.size === 0) {
+    // Persist a final snapshot before the room leaves memory.
+    try {
+      const snapshot = Y.encodeStateAsUpdate(room.ydoc);
+      await db.saveSnapshot(roomId, Buffer.from(snapshot), getRoomLanguage(room));
+      console.log(`Room "${roomId}" saved before cleanup`);
+    } catch (error) {
+      console.error(`[${roomId}] Final snapshot save failed: ${error.message}`);
+    }
+
     room.ydoc.destroy();
     rooms.delete(roomId);
     console.log(`Room "${roomId}" deleted`);
   }
 }
+
+// Periodically persist every live room to MySQL so a server restart does not
+// lose in-progress work.
+const SNAPSHOT_INTERVAL_MS = 30 * 1000;
+setInterval(async () => {
+  if (rooms.size === 0) return;
+
+  console.log(`Saving ${rooms.size} rooms to MySQL`);
+  for (const [roomId, room] of rooms) {
+    try {
+      const snapshot = Y.encodeStateAsUpdate(room.ydoc);
+      await db.saveSnapshot(roomId, Buffer.from(snapshot), getRoomLanguage(room));
+      console.log(`  Room "${roomId}" saved`);
+    } catch (error) {
+      console.error(`  Room "${roomId}" save failed: ${error.message}`);
+    }
+  }
+}, SNAPSHOT_INTERVAL_MS);
 
 function broadcast(room, message, exceptSocket) {
   room.clients.forEach((client) => {
@@ -67,11 +119,11 @@ function encodeOutputMessage(chunk) {
   return message;
 }
 
-wss.on('connection', (socket, request) => {
+wss.on('connection', async (socket, request) => {
   const url    = new URL(request.url, 'http://localhost:8080');
   const roomId = url.searchParams.get('room') || 'default';
 
-  const room = getRoom(roomId);
+  const room = await getRoom(roomId);
   room.clients.add(socket);
   socket.roomId = roomId;
 
@@ -143,7 +195,7 @@ wss.on('connection', (socket, request) => {
     }
   });
 
-  socket.on('close', () => {
+  socket.on('close', async () => {
     room.clients.delete(socket);
 
     // Remove this user's cursor from awareness and let others know it's gone
@@ -153,7 +205,7 @@ wss.on('connection', (socket, request) => {
     }
 
     console.log(`Client left "${roomId}". Remaining: ${room.clients.size}`);
-    cleanupRoom(socket.roomId);
+    await cleanupRoom(socket.roomId);
   });
 
   socket.on('error', (error) => {
@@ -165,6 +217,7 @@ wss.on('connection', (socket, request) => {
 });
 
 const PORT = 8080;
+db.testConnection();
 httpServer.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
