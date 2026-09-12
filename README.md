@@ -2,7 +2,7 @@
 
 A production-grade collaborative code editor where multiple users edit the same file simultaneously in real time — built from scratch to understand WebSockets, CRDTs, distributed systems, and sandboxed code execution.
 
-![CodeSync Demo]()
+![CodeSync Demo](test.jpg)
 
 ---
 
